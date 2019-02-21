@@ -23,8 +23,7 @@ def make_healpix_map(ra, dec, quantity, nside, mask=None, weight=None, fill_UNSE
     dec : array
         Declination.
     quantity : array
-        `quantity` can be 2D, in which case several maps are created or None, in
-        which case only count maps are returned.
+        `quantity` can be 2D, in which case several maps are created.
     nside : int
         `nside` parameter for healpix.
     mask : array
@@ -121,47 +120,6 @@ def make_healpix_map(ra, dec, quantity, nside, mask=None, weight=None, fill_UNSE
         return outmaps, count, returned_mask
 #
 
-def count2density(count, mask_frac=None, mask=None):
-    """
-    Creates a reconstructed density map from count-in-pixel map count, with
-    completeness and mask support.
-
-    Parameters
-    ----------
-    count : array
-        Healpix map of number count of object per pixel.
-    mask_frac : array (optional)
-        Healpix map of the fraction each pixel has been observed, also called
-        completeness or masked map fraction (the default is None).
-    mask : array
-        Binary mask of the sky (the default is None).
-
-    Returns
-    -------
-    array
-        Density map.
-
-    """
-
-    npix = len(count)
-
-    if mask_frac is None:
-        mask_frac = np.ones(npix, dtype=float)
-    if mask is None:
-        mask = np.ones(npix, dtype=bool)
-
-    msk = mask.astype(bool)
-
-    # Local mean density to compare count with.
-    avg_in_pixel = np.zeros(npix, dtype=float)
-    avg_in_pixel[msk] = mask_frac[msk] * np.sum(count[msk]) / np.sum(mask_frac[msk])
-
-    # Density
-    density = np.zeros(npix, dtype=float)
-    density[msk] = count[msk] / avg_in_pixel[msk] - 1.
-
-    return density
-#
 
 def density2count(densitymap, nbar, mask=None, completeness=None, pixel=True):
     """
@@ -205,11 +163,69 @@ def density2count(densitymap, nbar, mask=None, completeness=None, pixel=True):
     return np.random.poisson(lamb)
 #
 
+
+def count2density(count, mask=None, completeness=None):
+    """
+    Creates a reconstructed density map from count-in-pixel map count, with completeness and mask support.
+
+    Parameters
+    ----------
+    count : array
+        Healpix map of number count of object per pixel.
+    mask : array
+        Binary mask of the sky (the default is None).
+    completeness : array (optional)
+        Healpix map of the fraction each pixel has been observed, also called completeness or masked map fraction (the default is None).
+
+    Returns
+    -------
+    array
+        Density map.
+
+    """
+
+    npix = len(count)
+
+    if completeness is None:
+        completeness = np.ones(npix, dtype=float)
+    if mask is None:
+        mask = np.ones(npix, dtype=bool)
+
+    msk = mask.astype(bool)
+
+    # Local mean density to compare count with.
+    avg_in_pixel = np.zeros(npix, dtype=float)
+    avg_in_pixel[msk] = completeness[msk] * np.sum(count[msk]) / np.sum(completeness[msk])
+
+    # Density
+    density = np.zeros(npix, dtype=float)
+    density[msk] = count[msk] / avg_in_pixel[msk] - 1.
+
+    return density
+#
+
+
 def overdensity(ras,decs,mask_frac,nside):
     binary_mask = (mask_frac==0.0)
 
-    _, count, _ = make_healpix_map(ras, decs, quantity, nside, mask=binary_mask, weight=None, fill_UNSEEN=False, return_extra=False)
+    _, count, _ = make_healpix_map(ras, decs, None, nside, mask=binary_mask, weight=None, fill_UNSEEN=False, return_extra=False)
 
-    density = count2density(count, mask_frac=mask_frac, mask=binary_mask)
+    density = count2density(count, mask=binary_mask, completeness=mask_frac)
 
     return density
+
+
+def _random_pos(completeness, nobj):
+    """
+    Returns an array of healpix map indices sampled from the completeness map.
+    """
+    return np.random.choice(len(completeness), size=nobj, replace=True, p=completeness*1./np.sum(completeness))
+
+def get_random_count(count, completeness):
+    """
+    Produces a count map with the same number of object as the input with randomized positions according to completeness.
+    """
+    nobj = np.sum(count)
+    count_r = np.zeros_like(count)
+    np.add.at(count_r, _random_pos(completeness, nobj), 1.)
+    return count_r
